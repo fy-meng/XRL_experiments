@@ -1,0 +1,6 @@
+box2d>=2.3.3
+gym>=0.18.0
+numpy>=1.19.5
+pandas>=1.2.0
+requests>=2.25.1
+torch>=1.7.1
