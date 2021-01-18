@@ -183,7 +183,6 @@ class CropEnv(gym.Env):
         num_days = (dt.date(start_year + 1, 1, 1) - dt.date(start_year, 1, 1)).days
         days = np.random.randint(num_days)
         self.start_date = dt.date(start_year, 1, 1) + dt.timedelta(days=days)
-        print(days, self.start_date)
 
         # get weather data
         t_min, t_max, t_avg, rain, ra = self.weather_data.get_weather(self.start_date)
