@@ -164,7 +164,9 @@ class CropEnv(gym.Env):
         # plant height, leaf area index
         self.observation_space = gym.spaces.discrete.Discrete(8)
         # water, nitrogen, phosphorus, harvest
-        self.action_space = gym.spaces.discrete.Discrete(4)
+        # self.action_space = gym.spaces.discrete.Discrete(4)
+        # water, nitrogen, phosphorus
+        self.action_space = gym.spaces.discrete.Discrete(3)
 
         self.max_iter = max_iter
 
@@ -205,7 +207,8 @@ class CropEnv(gym.Env):
         return np.array([self.state.day, t_min, t_max, t_avg, rain, ra, self.state.CHT, self.state.LAI])
 
     def step(self, action):
-        irrigation, nitrogen, phosphorus, harvest = action.squeeze()
+        # irrigation, nitrogen, phosphorus, harvest = action.squeeze()
+        irrigation, nitrogen, phosphorus = action.squeeze()
 
         # update date and weather data
         date = self.state.date + dt.timedelta(days=1)
@@ -269,6 +272,8 @@ class CropEnv(gym.Env):
             UP_total=UP_total,  # total amount of phosphorus applied
         )
 
+        harvest = HUI >= 0.99
+
         observation = np.array([day, t_min, t_max, t_avg, rain, ra, CHT, LAI])
         reward = self.total_yield(self.crop, HUI, B) if harvest else 0
         done = True if harvest or (date - self.start_date).days > self.max_iter else False
@@ -305,9 +310,10 @@ class CropEnv(gym.Env):
     def nitrogen_stress(crop: CropParam, B, UN_total, HUI):
         # optimal nitrogen concentration
         c_NB = crop.bn1 + crop.bn2 * np.exp(-crop.bn3 * HUI)
-        if B > 0.1:
+        if B > 0:
             # scaling factor for the nitrogen stress factor
             SN_S = 2 * (1 - UN_total / (c_NB * B))
+            SN_S = np.clip(SN_S, -10, 10)
             # nitrogen stress factor
             SN = 1 - (SN_S / (SN_S + np.exp(3.39 - 10.93 * SN_S)))
         else:
@@ -324,9 +330,10 @@ class CropEnv(gym.Env):
     def phosphorus_stress(crop: CropParam, B, UP_total, HUI):
         # optimal phosphorus concentration
         c_PB = crop.bp1 + crop.bp2 * np.exp(-crop.bp3 * HUI)
-        if B > 0.1:
+        if B > 0:
             # scaling factor for the phosphorus stress factor
             SP_S = 2 * (1 - UP_total / (c_PB * B))
+            SP_S = np.clip(SP_S, -10, 10)
             # phosphorus stress factor
             PN = 1 - (SP_S / (SP_S + np.exp(3.39 - 10.93 * SP_S)))
         else:

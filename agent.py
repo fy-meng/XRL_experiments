@@ -76,12 +76,12 @@ class QRDQNCropAgent(Agent):
     WATER_VALUES = np.array([0, 2, 4, 6, 8])
     NITROGEN_VALUES = np.array([0, 125, 250, 375, 500])
     PHOSPHORUS_VALUES = np.array([0, 50, 100, 150, 200])
-    HARVEST_VALUES = np.array([0, 1])
+    # HARVEST_VALUES = np.array([0, 1])
 
     def __init__(self, state_size, _num_actions, batch_size=64, gamma=0.999, epsilon=0.9,
                  epsilon_decay=0.99995, buffer_size=None, **kwargs):
         num_actions = len(self.WATER_VALUES) * len(self.NITROGEN_VALUES) \
-                      * len(self.PHOSPHORUS_VALUES) * len(self.HARVEST_VALUES)
+                      * len(self.PHOSPHORUS_VALUES)  # * len(self.HARVEST_VALUES)
         super(QRDQNCropAgent, self).__init__(state_size, num_actions, buffer_size)
 
         self.batch_size = batch_size
@@ -104,14 +104,14 @@ class QRDQNCropAgent(Agent):
         nitrogen_idx = (action_idx // len(self.WATER_VALUES)) % len(self.NITROGEN_VALUES)
         phosphorus_idx = (action_idx // len(self.WATER_VALUES) // len(self.NITROGEN_VALUES)) \
                          % len(self.PHOSPHORUS_VALUES)
-        harvest_idx = (action_idx // len(self.WATER_VALUES) // len(self.NITROGEN_VALUES)
-                       // len(self.PHOSPHORUS_VALUES)) % len(self.HARVEST_VALUES)
+        # harvest_idx = (action_idx // len(self.WATER_VALUES) // len(self.NITROGEN_VALUES)
+        #                // len(self.PHOSPHORUS_VALUES)) % len(self.HARVEST_VALUES)
 
         action = np.array([
             self.WATER_VALUES[water_idx],
             self.NITROGEN_VALUES[nitrogen_idx],
             self.PHOSPHORUS_VALUES[phosphorus_idx],
-            self.HARVEST_VALUES[harvest_idx]
+            # self.HARVEST_VALUES[harvest_idx]
         ])
 
         return action
@@ -130,14 +130,15 @@ class QRDQNCropAgent(Agent):
 
     @staticmethod
     def action_to_idx(action):
-        water, nitrogen, phosphorus, harvest = action
+        # water, nitrogen, phosphorus, harvest = action
+        water, nitrogen, phosphorus = action
         water_idx = np.nonzero(QRDQNCropAgent.WATER_VALUES == water)[0][0]
         nitrogen_idx = np.nonzero(QRDQNCropAgent.NITROGEN_VALUES == nitrogen)[0][0]
         phosphorus_idx = np.nonzero(QRDQNCropAgent.PHOSPHORUS_VALUES == phosphorus)[0][0]
-        harvest_idx = np.nonzero(QRDQNCropAgent.HARVEST_VALUES == harvest)[0][0]
+        # harvest_idx = np.nonzero(QRDQNCropAgent.HARVEST_VALUES == harvest)[0][0]
 
-        idx = harvest_idx
-        idx = idx * len(QRDQNCropAgent.PHOSPHORUS_VALUES) + phosphorus_idx
+        # idx = harvest_idx
+        idx = phosphorus_idx
         idx = idx * len(QRDQNCropAgent.NITROGEN_VALUES) + nitrogen_idx
         idx = idx * len(QRDQNCropAgent.WATER_VALUES) + water_idx
 
