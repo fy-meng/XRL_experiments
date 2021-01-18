@@ -3,6 +3,7 @@ import time
 import gym
 
 from agent import *
+from envs.crop_model import CropEnv
 from utils import format_runtime, set_random_seed, load_config, get_state_size, get_num_actions
 
 
@@ -95,15 +96,18 @@ def main():
     assert config['mode'] in ('train', 'test')
     func = train if config['mode'] == 'train' else test
 
-    assert config['env_name'] in ('LunarLander-v2',)
-    env = gym.make(config['env_name'])
+    assert config['env_name'] in ('LunarLander-v2', 'CropEnv')
+    try:
+        env = gym.make(config['env_name'])
+    except gym.error.Error:
+        env = globals()[str(config['env_name'])]()
     state_size = get_state_size(env)
     num_actions = get_num_actions(env)
 
     if config['seed'] is not None:
         set_random_seed(config['seed'])
 
-    assert config['agent_type'] in ('DQNAgent',)
+    assert config['agent_type'] in ('DQNAgent', 'QRDQNCropAgent')
     agent = globals()[str(config['agent_type'])](state_size, num_actions, **config)
 
     func(env, agent, **config)
