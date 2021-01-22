@@ -61,7 +61,7 @@ def test(env: gym.Env, agent: Agent, num_episodes: int, save_history=False,
         steps = 0
         while not done:
             q_values = agent.get_q_values(state)
-            action = q_values.argmax()
+            action = agent.get_action(state)
             next_state, reward, done, _info = env.step(action)
             total_return += reward
 

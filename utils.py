@@ -46,21 +46,30 @@ def load_config() -> Dict[str, object]:
     config = {}
     for section in parser.sections():
         for key, item in parser[section].items():
-            # convert to int
-            if key in ('num_episodes', 'batch_size',):
-                config[key] = int(item)
-            # convert to float
-            elif key in ('gamma', 'epsilon', 'epsilon_decay', 'lr'):
-                config[key] = float(item)
-            # convert to bool
-            elif key in ('verbose', 'save_history'):
-                config[key] = bool(item)
             # convert to list of int
-            elif key in ('hidden_layers',):
+            if key in ('hidden_layers',):
                 config[key] = [int(s) for s in item.split(',')]
+                continue
+            # try convert to int
+            try:
+                config[key] = int(item)
+                continue
+            except ValueError:
+                pass
+            # convert to float
+            try:
+                config[key] = float(item)
+                continue
+            except ValueError:
+                pass
+            # convert to bool
+            if item == 'True' or item == 'False':
+                config[key] = bool(item)
+                continue
             # check for empty value
-            elif item == '':
+            if item == '':
                 config[key] = None
+                continue
             # otherwise, kept as str
             else:
                 config[key] = item

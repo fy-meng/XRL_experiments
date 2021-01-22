@@ -44,13 +44,13 @@ class NeuralNet:
 
 class DQN(NeuralNet):
     def __init__(self, in_channels, out_channels, hidden_layers, lr=0.001, model_load_path=None, **_kwargs):
-        self.net = FCNet(in_channels, out_channels, hidden_layers)
-        if model_load_path is not None:
-            self.net.load_state_dict(torch.load(model_load_path))
-        self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
-
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.net = self.net.to(self.device)
+
+        self.net = FCNet(in_channels, out_channels, hidden_layers).to(self.device)
+        if model_load_path is not None:
+            self.net.load_state_dict(torch.load(model_load_path, map_location=self.device))
+
+        self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
 
     def predict(self, x: np.ndarray) -> torch.Tensor:
         if isinstance(x, np.ndarray):
@@ -91,13 +91,13 @@ class QRDQN(NeuralNet):
                  model_load_path=None, **_kwargs):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+        self.net = FCNet(in_channels, out_channels * num_bins, hidden_layers).to(self.device)
+        if model_load_path is not None:
+            self.net.load_state_dict(torch.load(model_load_path, map_location=self.device))
+
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.num_bins = num_bins
-
-        self.net = FCNet(in_channels, out_channels * num_bins, hidden_layers).to(self.device)
-        if model_load_path is not None:
-            self.net.load_state_dict(torch.load(model_load_path))
 
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
 
