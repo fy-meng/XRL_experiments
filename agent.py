@@ -80,8 +80,8 @@ class DQNAgent(Agent):
 
 class QRDQNCropAgent(Agent):
     WATER_VALUES = np.array([0, 2, 4, 6, 8])
-    NITROGEN_VALUES = np.array([0, 125, 250, 375, 500])
-    PHOSPHORUS_VALUES = np.array([0, 50, 100, 150, 200])
+    NITROGEN_VALUES = np.array([0, 0.5, 1, 1.5, 2])
+    PHOSPHORUS_VALUES = np.array([0, 0.5, 1, 1.5, 2])
     # HARVEST_VALUES = np.array([0, 1])
 
     SALIENCY_TRIALS = 10

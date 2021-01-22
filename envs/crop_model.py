@@ -13,6 +13,8 @@ from utils import verify_output_path
 
 class CropParam:
     def __init__(self, filepath=None):
+        self.plant_months = []  # the months that are good to start planting
+        self.price = None  # selling price
         self.PHU = None  # potential heat units required for maturity
         self.BE = None  # crop parameter: energy to biomass
         self.HI = None  # potential harvest index
@@ -46,7 +48,11 @@ class CropParam:
         parser.optionxform = str
         parser.read(filepath)
         for key, item in parser['DEFAULT'].items():
-            setattr(self, key, float(item))
+            if key == 'plant_months':
+                item = [int(month) for month in item.split(',')]
+            else:
+                item = float(item)
+            setattr(self, key, item)
 
 
 class LocParam:
@@ -71,7 +77,6 @@ class LocParam:
 
 class WeatherData:
     POWER_VARIABLES = ['T2M_MIN', 'T2M_MAX', 'T2M', 'PRECTOT', 'ALLSKY_SFC_SW_DWN']
-    MJ_M2_TO_LANG = lambda x: x / 41868
 
     def __init__(self, lat, lon, cache_dir='./envs/weather_data/'):
         self.lat = lat
@@ -103,31 +108,36 @@ class WeatherData:
         pd.to_pickle(self.df, filepath)
 
     def query_nasa_power(self):
+        print('requesting weather data from NASA POWER...')
+
         start_date = dt.date(1984, 1, 1)
         end_date = dt.date(2020, 1, 1)
 
         # build URL for retrieving data
         server = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py'
-        payload = {'request': 'execute',
-                   'identifier': 'SinglePoint',
-                   'parameters': ','.join(self.POWER_VARIABLES),
-                   'lat': self.lat,
-                   'lon': self.lon,
-                   'startDate': start_date.strftime('%Y%m%d'),
-                   'endDate': end_date.strftime('%Y%m%d'),
-                   'userCommunity': 'AG',
-                   'tempAverage': 'DAILY',
-                   'outputList': 'JSON',
-                   'user': 'anonymous'
-                   }
+        payload = {
+            'request': 'execute',
+            'identifier': 'SinglePoint',
+            'parameters': ','.join(self.POWER_VARIABLES),
+            'lat': self.lat,
+            'lon': self.lon,
+            'startDate': start_date.strftime('%Y%m%d'),
+            'endDate': end_date.strftime('%Y%m%d'),
+            'userCommunity': 'AG',
+            'tempAverage': 'DAILY',
+            'outputList': 'JSON',
+            'user': 'anonymous'
+        }
         req = requests.get(server, params=payload)
 
         if req.status_code != 200:
-            raise RuntimeError('Failed to retrieve weather data from NASA POWER: {req.status_code} from {req.url}')
+            raise RuntimeError(f'Failed to retrieve weather data from NASA POWER: {req.status_code} from {req.url}')
 
         result = req.json()
         if not result:
             raise RuntimeError('Failed to retrieve weather data from NASA POWER')
+
+        print('success')
 
         return result
 
@@ -141,11 +151,8 @@ class WeatherData:
             d[var] = s
         self.df = pd.DataFrame(d)
 
-        # adjust unit
-        self.df['ALLSKY_SFC_SW_DWN'] = self.df['ALLSKY_SFC_SW_DWN'].apply(WeatherData.MJ_M2_TO_LANG)
-
         # remove rows that have missing data
-        self.df = self.df.dropna(axis='index')
+        self.df: pd.DataFrame = self.df.dropna(axis='index')
 
     def get_weather(self, date: dt.date) -> (float, float, float, float, float):
         return self.df.loc[date.strftime('%Y%m%d')].values
@@ -155,11 +162,14 @@ class CropEnv(gym.Env):
     STATE_KEYS = ('date', 'day', 't_min', 't_max', 't_avg', 'rain', 'ra',
                   'CHT', 'HU_total', 'HUI', 'LAI', 'LAI0', 'B',
                   'UN_total', 'UP_total')
+    IRRIGATION_COST = 50 / (12 * 25.4) / 2.471  # in USD / (mm * ha)
+    NITROGEN_COST = 0.47  # in USD / (kg * ha)
+    PHOSPHORUS_COST = 0.37  # in USD / (kg * ha)
 
     State = namedtuple('State', STATE_KEYS)
 
     def __init__(self, crop_config='./envs/crops/corn.ini', loc_config='./envs/locations/davis.ini',
-                 max_iter=365):
+                 max_iter=180):
         # day, min temperature, max temperature, avg temperature, sunlight radiation, amount of rain
         # plant height, leaf area index
         self.observation_space = gym.spaces.discrete.Discrete(8)
@@ -180,11 +190,16 @@ class CropEnv(gym.Env):
         self.reset()
 
     def reset(self):
-        # start from a random date from 1960 to 1982
+        # start from a random year from 1960 to 1982
         start_year = np.random.randint(1984, 2000)
-        num_days = (dt.date(start_year + 1, 1, 1) - dt.date(start_year, 1, 1)).days
-        days = np.random.randint(num_days)
-        self.start_date = dt.date(start_year, 1, 1) + dt.timedelta(days=days)
+        # start from a random date from allowed months in crop params
+        start_month = np.random.choice(self.crop.plant_months)
+        if start_month != 12:
+            num_days = (dt.date(start_year, start_month + 1, 1) - dt.date(start_year, start_month, 1)).days
+        else:
+            num_days = (dt.date(start_year + 1, 1, 1) - dt.date(start_year, start_month, 1)).days
+        start_day = np.random.randint(1, num_days + 1)
+        self.start_date = dt.date(start_year, start_month, start_day)
 
         # get weather data
         t_min, t_max, t_avg, rain, ra = self.weather_data.get_weather(self.start_date)
@@ -192,7 +207,7 @@ class CropEnv(gym.Env):
         # reset state
         self.state = CropEnv.State(
             date=self.start_date,  # actual date
-            day=(self.start_date - dt.date(self.start_date.year, 1, 1)).days,  # day number
+            day=(self.start_date - dt.date(self.start_date.year, 1, 1)).days + 1,  # day number
             t_min=t_min, t_max=t_max, t_avg=t_avg, rain=rain, ra=ra,
             HU_total=0,  # total heat unit
             HUI=0,  # heat unit index
@@ -206,13 +221,13 @@ class CropEnv(gym.Env):
 
         return np.array([self.state.day, t_min, t_max, t_avg, rain, ra, self.state.CHT, self.state.LAI])
 
-    def step(self, action):
+    def step(self, action: np.ndarray):
         # irrigation, nitrogen, phosphorus, harvest = action.squeeze()
         irrigation, nitrogen, phosphorus = action.squeeze()
 
         # update date and weather data
-        date = self.state.date + dt.timedelta(days=1)
-        day = date.day
+        date: dt.date = self.state.date + dt.timedelta(days=1)
+        day = (date - dt.date(date.year, 1, 1)).days + 1
         t_min, t_max, t_avg, rain, ra = self.weather_data.get_weather(date)
 
         water = irrigation + rain
@@ -225,7 +240,10 @@ class CropEnv(gym.Env):
         HUI = self.heat_unit_index(self.crop, HU_total)
 
         # check if leaf declination starts
-        LAI0 = self.state.LAI if HUI >= self.crop.HUI0 else -1
+        if self.state.LAI0 == -1 and HUI >= self.crop.HUI0:
+            LAI0 = self.state.LAI
+        else:
+            LAI0 = self.state.LAI0
 
         # update nitrogen and phosphorus
         UN = self.nitrogen_uptake(nitrogen, self.loc.SW)
@@ -238,10 +256,11 @@ class CropEnv(gym.Env):
         NS = self.nitrogen_stress(self.crop, self.state.B, UN_total, HUI)
         PS = self.phosphorus_stress(self.crop, self.state.B, UP_total, HUI)
         TS = self.temperature_stress(self.crop, t_avg)
-        AS = self.aeration_stress(self.crop, water, self.loc.PO)
+        # AS = self.aeration_stress(self.crop, water, self.loc.PO)
 
         # compute crop growth constraint
-        REG = min(WS, NS, PS, TS, AS)
+        # REG = min(WS, NS, PS, TS, AS)
+        REG = min(WS, NS, PS, TS)
 
         # update leaf area index
         LAI = self.leaf_area_index(self.crop, self.state.LAI, LAI0, REG, HUI, self.state.HUI)
@@ -272,11 +291,13 @@ class CropEnv(gym.Env):
             UP_total=UP_total,  # total amount of phosphorus applied
         )
 
-        harvest = HUI >= 0.99
-
+        done = HUI >= 0.99 or (date - self.start_date).days >= self.max_iter
         observation = np.array([day, t_min, t_max, t_avg, rain, ra, CHT, LAI])
-        reward = self.total_yield(self.crop, HUI, B) if harvest else 0
-        done = True if harvest or (date - self.start_date).days > self.max_iter else False
+        reward = -irrigation * self.IRRIGATION_COST \
+                 - nitrogen * self.NITROGEN_COST \
+                 - phosphorus * self.PHOSPHORUS_COST
+        if done:
+            reward += self.total_yield(self.crop, HUI, B) * self.crop.price
 
         return observation, reward, done, None
 
@@ -300,8 +321,9 @@ class CropEnv(gym.Env):
         Ep = crop.E0 * LAI / 3
         Ep = min(Ep, crop.E0)
         # water stress
-        if LAI > 0:
+        if Ep > 0:
             WS = u / Ep
+            WS = np.clip(WS, 0, 1)
         else:
             WS = 1
         return WS
@@ -356,9 +378,10 @@ class CropEnv(gym.Env):
 
     @staticmethod
     def temperature_stress(crop: CropParam, T_avg):
+        # clip daily temperature to mean To and min Tb
+        T = np.clip(T_avg, crop.Tb, crop.To + (crop.To - crop.Tb))
         # temperature stress
-        TS = np.sin(np.pi / 2 * ((T_avg - crop.Tb) / (crop.To - crop.Tb)))
-        TS = np.clip(TS, 0, 1)
+        TS = np.sin(np.pi / 2 * ((T - crop.Tb) / (crop.To - crop.Tb)))
         return TS
 
     @staticmethod
@@ -383,12 +406,12 @@ class CropEnv(gym.Env):
             # change in leaf area index
             delta_LAI = delta_HUF \
                         * crop.LAI_max \
-                        * (1 - np.exp(5 * prev_LAI - crop.LAI_max)) \
+                        * (1 - np.exp(5 * (prev_LAI - crop.LAI_max))) \
                         * np.sqrt(REG)
             LAI = prev_LAI + delta_LAI
         # from the start of leaf decline to the end of the growing season
         else:
-            LAI = LAI0 * (1 - HUI / 1 - crop.HUI0) ** crop.ad
+            LAI = LAI0 * ((1 - HUI) / (1 - crop.HUI0)) ** crop.ad
         return LAI
 
     @staticmethod
@@ -403,9 +426,10 @@ class CropEnv(gym.Env):
         PAR = 0.5 * RA * (1 - np.exp(-0.65 * LAI))
         # change in day length
         delta_HRLT = CropEnv.day_length(date, LAT) \
-                     - CropEnv.day_length(date - dt.timedelta(days=1), LAT)
+                     - CropEnv.day_length(date, LAT)
         # daily potential increase in biomass
         delta_Bp = 0.001 * crop.BE * PAR * (1 + delta_HRLT) ** 3
+
         return delta_Bp
 
     @staticmethod
@@ -425,12 +449,13 @@ class CropEnv(gym.Env):
 
     @staticmethod
     def day_length(date: dt.date, LAT):
+        day = (date - dt.date(date.year, 1, 1)).days + 1
         # sun declination angle
-        SD = 0.4102 * np.sin(2 * np.pi / 365 * (date.day - 80.25))
+        SD = 0.4102 * np.sin(2 * np.pi / 365 * (day - 80.25))
         # day length
         HRLT = 7.64 * np.arccos(
-            -np.sin(2 * np.pi * LAT / 365 * np.sin(SD) - 0.044)
-            / np.cos(2 * np.pi * LAT / 365) * np.cos(SD)
+            (-np.sin(2 * np.pi * LAT / 360) * np.sin(SD) - 0.044)
+            / np.cos(2 * np.pi * LAT / 360) * np.cos(SD)
         )
         return HRLT
 
