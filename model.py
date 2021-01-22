@@ -47,14 +47,15 @@ class DQN(NeuralNet):
         self.net = FCNet(in_channels, out_channels, hidden_layers)
         if model_load_path is not None:
             self.net.load_state_dict(torch.load(model_load_path))
-        # self.optimizer = optim.RMSprop(self.net.parameters())
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.net = self.net.to(self.device)
 
     def predict(self, x: np.ndarray) -> torch.Tensor:
-        return self.net(torch.Tensor(x))
+        if isinstance(x, np.ndarray):
+            x = torch.Tensor(x).to(self.device)
+        return self.net(x)
 
     def optimize(self, batch, gamma: float):
         states = torch.FloatTensor([transition.state for transition in batch]).to(self.device)
@@ -69,7 +70,9 @@ class DQN(NeuralNet):
 
         # calculate expected q-values using reward and next state
         next_qs = self.predict(next_states)
-        target_qs = rewards + gamma * torch.where(dones, torch.tensor(0.), torch.max(next_qs, dim=-1).values)
+        target_qs = rewards + gamma * torch.where(dones,
+                                                  torch.tensor(0.).to(self.device),
+                                                  torch.max(next_qs, dim=-1).values)
         target_qs = target_qs.unsqueeze(1)
 
         loss = F.mse_loss(expected_qs, target_qs)
@@ -101,8 +104,10 @@ class QRDQN(NeuralNet):
         self.kappa = kappa
         self.tau = torch.FloatTensor([i / self.num_bins for i in range(1, self.num_bins + 1)]).to(self.device)
 
-    def predict(self, x: np.ndarray) -> torch.Tensor:
-        return self.net(torch.Tensor(x)).reshape(-1, self.out_channels, self.num_bins)
+    def predict(self, x) -> torch.Tensor:
+        if isinstance(x, np.ndarray):
+            x = torch.Tensor(x).to(self.device)
+        return self.net(x).reshape(-1, self.out_channels, self.num_bins)
 
     def optimize(self, batch, gamma: float):
         batch_size = len(batch)
@@ -127,7 +132,9 @@ class QRDQN(NeuralNet):
         target_qs = next_qs.gather(1, best_next_actions)  # shape = (b, 1, c)
         dones = dones.unsqueeze(-1).unsqueeze(-1)  # shape = (b, 1, 1)
         rewards = rewards.unsqueeze(-1).unsqueeze(-1)  # shape = (b, 1, 1)
-        target_qs = rewards + gamma * torch.where(dones, torch.tensor(0.), target_qs)  # shape = (b, 1, c)
+        target_qs = rewards + gamma * torch.where(dones,
+                                                  torch.tensor(0.).to(self.device),
+                                                  target_qs)  # shape = (b, 1, c)
         assert target_qs.shape == (batch_size, 1, self.num_bins)
 
         td_errors = target_qs - expected_qs
