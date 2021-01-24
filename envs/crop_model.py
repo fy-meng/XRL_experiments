@@ -220,7 +220,9 @@ class CropEnv(gym.Env):
         )
 
         # return np.array([self.state.day, t_min, t_max, t_avg, rain, ra, self.state.CHT, self.state.LAI])
-        return self.state
+        return np.array([self.state.day, t_min, t_max, t_avg, rain, ra, self.state.HU_total, self.state.HUI,
+                         self.state.LAI, self.state.LAI0, self.state.CHT, self.state.B, self.state.UN_total,
+                         self.state.UP_total])
 
     def step(self, action: np.ndarray):
         # irrigation, nitrogen, phosphorus, harvest = action.squeeze()
@@ -280,7 +282,7 @@ class CropEnv(gym.Env):
         # update state
         self.state = CropEnv.State(
             date=date,  # actual date
-            day=(date - dt.date(date.year, 1, 1)).days,  # day number in year
+            day=day,  # day number in year
             t_min=t_min, t_max=t_max, t_avg=t_avg, rain=rain, ra=ra,
             HU_total=HU_total,  # total heat unit
             HUI=HUI,  # heat unit index
@@ -293,14 +295,14 @@ class CropEnv(gym.Env):
         )
 
         done = HUI >= 0.99 or (date - self.start_date).days >= self.max_iter
-        # observation = np.array([day, t_min, t_max, t_avg, rain, ra, CHT, LAI])
+        observation = np.array([day, t_min, t_max, t_avg, rain, ra, HU_total, HUI, LAI, LAI0, CHT, B, UN_total, UP_total])
         reward = -irrigation * self.IRRIGATION_COST \
                  - nitrogen * self.NITROGEN_COST \
                  - phosphorus * self.PHOSPHORUS_COST
         if done:
             reward += self.total_yield(self.crop, HUI, B) * self.crop.price
 
-        return self.state, reward, done, None
+        return observation, reward, done, None
 
     @staticmethod
     def heat_unit(crop: CropParam, T_min, T_max):
