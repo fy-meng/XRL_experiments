@@ -207,7 +207,7 @@ class QRDQNCropAgent(Agent):
             self.state_max = np.maximum(self.state_max, state)
 
     def perturb(self, state: np.ndarray, idx: int) -> np.ndarray:
-        amount = np.random.random() * self.PERTURB_COEFF * (self.state_max[idx] * self.state_min[idx])
+        amount = np.random.random() * self.PERTURB_COEFF * (self.state_max[idx] - self.state_min[idx])
         perturbed_state = state.copy()
         perturbed_state[idx] += amount
         return perturbed_state
