@@ -172,7 +172,7 @@ class CropEnv(gym.Env):
                  max_iter=180):
         # day, min temperature, max temperature, avg temperature, sunlight radiation, amount of rain
         # plant height, leaf area index
-        self.observation_space = gym.spaces.discrete.Discrete(8)
+        self.observation_space = gym.spaces.discrete.Discrete(14)
         # water, nitrogen, phosphorus, harvest
         # self.action_space = gym.spaces.discrete.Discrete(4)
         # water, nitrogen, phosphorus
