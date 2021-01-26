@@ -137,7 +137,7 @@ class QRDQN(NeuralNet):
                                                   target_qs)  # shape = (b, 1, c)
         assert target_qs.shape == (batch_size, 1, self.num_bins)
 
-        td_errors = target_qs - expected_qs
+        td_errors = target_qs - expected_qs  # shape = (b, c, c)
         assert td_errors.shape == (batch_size, self.num_bins, self.num_bins)
 
         huber_loss = self.huber_loss(td_errors)

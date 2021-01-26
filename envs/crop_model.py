@@ -169,7 +169,7 @@ class CropEnv(gym.Env):
     State = namedtuple('State', STATE_KEYS)
 
     def __init__(self, crop_config='./envs/crops/corn.ini', loc_config='./envs/locations/davis.ini',
-                 max_iter=180):
+                 max_iter=120):
         # day, min temperature, max temperature, avg temperature, sunlight radiation, amount of rain
         # plant height, leaf area index
         self.observation_space = gym.spaces.discrete.Discrete(14)
