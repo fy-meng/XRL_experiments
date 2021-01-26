@@ -78,45 +78,23 @@ class DQNAgent(Agent):
         self.net.save_model(model_save_path)
 
 
-class QRDQNCropAgent(Agent):
+class CropAgent(Agent):
     WATER_VALUES = np.array([0, 2, 4, 6, 8])
     NITROGEN_VALUES = np.array([0, 0.5, 1, 1.5, 2])
     PHOSPHORUS_VALUES = np.array([0, 0.5, 1, 1.5, 2])
-    # HARVEST_VALUES = np.array([0, 1])
 
     SALIENCY_TRIALS = 10
     PERTURB_COEFF = 0.1
 
-    def __init__(self, state_size, _num_actions, batch_size=64, gamma=0.999, epsilon=0.9,
-                 epsilon_decay=0.99995, compute_saliency=False, **kwargs):
+    def __init__(self, state_size, _num_actions, compute_saliency=False, **kwargs):
         num_actions = len(self.WATER_VALUES) * len(self.NITROGEN_VALUES) \
                       * len(self.PHOSPHORUS_VALUES)  # * len(self.HARVEST_VALUES)
-        super(QRDQNCropAgent, self).__init__(state_size, num_actions, **kwargs)
-
-        self.batch_size = batch_size
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.epsilon_decay = epsilon_decay
-
-        self.net = QRDQN(state_size, self.num_actions, **kwargs)
+        super(CropAgent, self).__init__(state_size, num_actions, **kwargs)
 
         self.compute_saliency = compute_saliency
         self.saliencies = []
         self.state_min = None  # min of each feature seen so far, used for perturbation
         self.state_max = None  # max of each feature seen so far, used for perturbation
-
-    def get_action(self, state: np.ndarray):
-        if self.mode == 'train' and np.random.random() < self.epsilon:
-            action_idx = np.random.randint(self.num_actions)
-        else:
-            action_idx = self.get_q_values(state).mean(axis=1).argmax(axis=-1)
-
-        self.epsilon *= self.epsilon_decay
-
-        # convert action index to actual action values
-        action = self.idx_to_action(action_idx)
-
-        return action
 
     def store_transition(self, transition: Transition):
         new_transition = Transition(
@@ -128,7 +106,7 @@ class QRDQNCropAgent(Agent):
             done=transition.done,
             q_values=transition.q_values
         )
-        super(QRDQNCropAgent, self).store_transition(new_transition)
+        super(CropAgent, self).store_transition(new_transition)
 
         if self.compute_saliency:
             self.saliencies.append(self.get_saliency(transition.state, transition.q_values))
@@ -140,9 +118,7 @@ class QRDQNCropAgent(Agent):
         water_idx = np.nonzero(QRDQNCropAgent.WATER_VALUES == water)[0][0]
         nitrogen_idx = np.nonzero(QRDQNCropAgent.NITROGEN_VALUES == nitrogen)[0][0]
         phosphorus_idx = np.nonzero(QRDQNCropAgent.PHOSPHORUS_VALUES == phosphorus)[0][0]
-        # harvest_idx = np.nonzero(QRDQNCropAgent.HARVEST_VALUES == harvest)[0][0]
 
-        # idx = harvest_idx
         idx = phosphorus_idx
         idx = idx * len(QRDQNCropAgent.NITROGEN_VALUES) + nitrogen_idx
         idx = idx * len(QRDQNCropAgent.WATER_VALUES) + water_idx
@@ -157,25 +133,12 @@ class QRDQNCropAgent(Agent):
                          % len(QRDQNCropAgent.PHOSPHORUS_VALUES)
 
         action = np.array([
-            QRDQNCropAgent.WATER_VALUES[water_idx],
-            QRDQNCropAgent.NITROGEN_VALUES[nitrogen_idx],
-            QRDQNCropAgent.PHOSPHORUS_VALUES[phosphorus_idx],
+            CropAgent.WATER_VALUES[water_idx],
+            CropAgent.NITROGEN_VALUES[nitrogen_idx],
+            CropAgent.PHOSPHORUS_VALUES[phosphorus_idx],
         ])
 
         return action
-
-    def get_q_values(self, state: np.ndarray) -> np.ndarray:
-        return self.net.predict(state).detach().cpu().numpy()
-
-    def optimize(self):
-        batch: List[Transition] = self.buffer.sample(self.batch_size)
-        if batch is None:
-            return
-
-        self.net.optimize(batch, self.gamma)
-
-    def save_model(self, model_save_path: str):
-        self.net.save_model(model_save_path)
 
     def get_saliency(self, state: np.ndarray, q_values: np.ndarray) -> np.ndarray:
         assert state.size == self.state_size, "saliency cannot be computed during training"
@@ -219,3 +182,81 @@ class QRDQNCropAgent(Agent):
         ]) for field in Transition._fields}
         history['saliency'] = np.array(self.saliencies)
         np.savez(path, **history)
+
+
+class QRDQNCropAgent(CropAgent):
+    def __init__(self, state_size, num_actions, batch_size=64, gamma=0.999, epsilon=0.9,
+                 epsilon_decay=0.99995, compute_saliency=False, **kwargs):
+        super(QRDQNCropAgent, self).__init__(state_size, num_actions, **kwargs)
+
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+
+        self.net = QRDQN(state_size, self.num_actions, **kwargs)
+
+    def get_action(self, state: np.ndarray):
+        if self.mode == 'train' and np.random.random() < self.epsilon:
+            action_idx = np.random.randint(self.num_actions)
+        else:
+            action_idx = self.get_q_values(state).mean(axis=1).argmax(axis=-1)
+
+        self.epsilon *= self.epsilon_decay
+
+        # convert action index to actual action values
+        action = self.idx_to_action(action_idx)
+
+        return action
+
+    def get_q_values(self, state: np.ndarray) -> np.ndarray:
+        return self.net.predict(state).detach().cpu().numpy()
+
+    def optimize(self):
+        batch: List[Transition] = self.buffer.sample(self.batch_size)
+        if batch is None:
+            return
+
+        self.net.optimize(batch, self.gamma)
+
+    def save_model(self, model_save_path: str):
+        self.net.save_model(model_save_path)
+
+
+class DQNCropAgent(CropAgent):
+    def __init__(self, state_size, num_actions, batch_size=64, gamma=0.999, epsilon=0.9,
+                 epsilon_decay=0.99995, compute_saliency=False, **kwargs):
+        super(DQNCropAgent, self).__init__(state_size, num_actions, **kwargs)
+
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+
+        self.net = DQN(state_size, self.num_actions, **kwargs)
+
+    def get_action(self, state: np.ndarray):
+        if self.mode == 'train' and np.random.random() < self.epsilon:
+            action_idx = np.random.randint(self.num_actions)
+        else:
+            action_idx = self.get_q_values(state).argmax(axis=-1)
+
+        self.epsilon *= self.epsilon_decay
+
+        # convert action index to actual action values
+        action = self.idx_to_action(action_idx)
+
+        return action
+
+    def get_q_values(self, state: np.ndarray) -> np.ndarray:
+        return self.net.predict(state).detach().cpu().numpy()
+
+    def optimize(self):
+        batch: List[Transition] = self.buffer.sample(self.batch_size)
+        if batch is None:
+            return
+
+        self.net.optimize(batch, self.gamma)
+
+    def save_model(self, model_save_path: str):
+        self.net.save_model(model_save_path)

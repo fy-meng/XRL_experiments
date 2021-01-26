@@ -107,7 +107,7 @@ def main():
     if config['seed'] is not None:
         set_random_seed(config['seed'])
 
-    assert config['agent_type'] in ('DQNAgent', 'QRDQNCropAgent')
+    assert config['agent_type'] in ('DQNAgent', 'QRDQNCropAgent', 'DQNCropAgent')
     agent = globals()[str(config['agent_type'])](state_size, num_actions, **config)
 
     func(env, agent, **config)
