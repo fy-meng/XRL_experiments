@@ -159,3 +159,53 @@ class QRDQN(NeuralNet):
     def save_model(self, model_save_path: str):
         verify_output_path(model_save_path)
         torch.save(self.net.state_dict(), model_save_path)
+
+
+class CADQN(NeuralNet):
+    def __init__(self, in_channels, num_actions, hidden_layers, lr=0.001, model_load_path=None, **_kwargs):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.num_actions = num_actions
+        # mu: (num_actions), p: (num_actions, num_actions), v: (1,)
+        out_channels = num_actions * (num_actions + 1) + 1
+        self.net = FCNet(in_channels, out_channels, hidden_layers).to(self.device)
+        if model_load_path is not None:
+            self.net.load_state_dict(torch.load(model_load_path, map_location=self.device))
+
+        self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
+
+    def predict(self, x) -> torch.Tensor:
+        if isinstance(x, np.ndarray):
+            x = torch.Tensor(x).to(self.device)
+        return self.net(x)
+
+    def optimize(self, batch, gamma: float):
+        states = torch.FloatTensor([transition.state for transition in batch]).to(self.device)
+        actions = torch.LongTensor([transition.action for transition in batch]).to(self.device)
+        rewards = torch.FloatTensor([transition.reward for transition in batch]).to(self.device)
+        next_states = torch.FloatTensor([transition.next_state for transition in batch]).to(self.device)
+        dones = torch.BoolTensor([transition.done for transition in batch]).to(self.device)
+
+        # calculate current q-values
+        expected_output = self.predict(states)
+        expected_mus = expected_output[:, :self.num_actions]
+        expected_ps = torch.reshape(expected_output[:, self.num_actions:-1], (-1, self.num_actions, self.num_actions))
+        expected_vs = expected_output[:, -1]
+        expected_qs = -0.5 * torch.einsum('bm, bmm, bm -> b',
+                                          (expected_mus - actions), expected_ps, (expected_mus - actions)) \
+                      + expected_vs
+
+        # calculate expected q-values using reward and next state
+        next_vs = self.predict(next_states)[:, -1]
+        target_qs = rewards + gamma * torch.where(dones, torch.tensor(0.).to(self.device), next_vs)
+        target_qs = target_qs.unsqueeze(1)
+
+        loss = F.mse_loss(expected_qs, target_qs)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def save_model(self, model_save_path: str):
+        verify_output_path(model_save_path)
+        torch.save(self.net.state_dict(), model_save_path)

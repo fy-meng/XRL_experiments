@@ -47,7 +47,7 @@ def load_config() -> Dict[str, object]:
     for section in parser.sections():
         for key, item in parser[section].items():
             # convert to list of int
-            if key in ('hidden_layers',):
+            if key in ('hidden_layers', 'action_min', 'action_max'):
                 config[key] = [int(s) for s in item.split(',')]
                 continue
             # try convert to int
